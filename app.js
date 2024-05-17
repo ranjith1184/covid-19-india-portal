@@ -1,259 +1,134 @@
 const express = require('express')
-
-const app = express()
-
-const {open} = require('sqlite')
-
-const sqlite3 = require('sqlite3')
-
 const path = require('path')
-
-app.use(express.json())
-
-const dbPath = path.join(__dirname, 'covid19IndiaPortal.db')
-
+const {open} = require('sqlite')
+const sqlite3 = require('sqlite3')
 const bcrypt = require('bcrypt')
-
-const jwt = require('jsonwebtoken')
+const jwttokens = require('jsonwebtoken')
 
 let db = null
 
-const startDbAndServer = async () => {
+const app = express()
+
+app.use(express.json())
+const dbpath = path.join(__dirname, 'covid19IndiaPortal.db')
+
+const connection = async () => {
   try {
-    db = await open({
-      filename: dbPath,
-
-      driver: sqlite3.Database,
-    })
-
+    db = await open({filename: dbpath, driver: sqlite3.Database})
     app.listen(3000, () => {
-      console.log('server is running at port 3000')
+      console.log('Server is running')
     })
   } catch (e) {
-    console.log(e.message)
-
+    console.log('connection error : ' + e)
     process.exit(1)
   }
 }
 
-startDbAndServer()
+connection()
 
-app.post('/login/', async (request, response) => {
-  const {username, password} = request.body
-
-  const checkUserQuery = `SELECT * FROM user where username = '${username}';`
-
-  const checkUser = await db.get(checkUserQuery)
-
-  if (checkUser === undefined) {
-    response.status(400)
-
-    response.send('Invalid user')
-  } else {
-    const passwordCheck = await bcrypt.compare(password, checkUser.password)
-
-    if (passwordCheck !== true) {
-      response.status(400)
-
-      response.send('Invalid password')
-    } else {
-      const payload = {
-        username: username,
-      }
-
-      const jwtToken = jwt.sign(payload, 'MySecretKey')
-
-      response.send({jwtToken})
-    }
+const check = (req, res, next) => {
+  let jwt
+  const header = req.headers['authorization']
+  if (header != undefined) {
+    jwt = header.split(' ')[1]
   }
-})
-
-const middlewareFunc = (request, response, next) => {
-  let jwtToken
-
-  const authHeader = request.headers['authorization']
-
-  if (authHeader !== undefined) {
-    //console.log(authHeader);
-
-    jwtToken = authHeader.split(' ')[1]
-
-    jwt.verify(jwtToken, 'MySecretKey', async (error, payload) => {
-      if (error) {
-        response.status(401)
-
-        response.send('Invalid JWT Token')
+  if (jwt === undefined) {
+    res.status(401)
+    res.send('Invalid JWT Token')
+  } else {
+    jwttokens.verify(jwt, 'secretkey', async (err, payload) => {
+      if (err) {
+        res.send('Invalid JWT Token')
       } else {
+        //console.log('correct jwt token')
         next()
       }
     })
-
-    if (authHeader === undefined) {
-      response.status(401)
-
-      response.send('Invalid JWT Token')
-    }
   }
 }
 
-app.get('/states/', middlewareFunc, async (request, response) => {
-  const getStatesQuery = `SELECT * FROM state ORDER BY state_id`
+app.post('/login/', async (req, res) => {
+  const {username, password} = req.body
 
-  const getStates = await db.all(getStatesQuery)
+  try {
+    const api1 = `SELECT * FROM user WHERE username = '${username}';`
+    const user = await db.get(api1)
 
-  const getStatesResult = getStates.map(state => {
-    return {
-      stateId: state.state_id,
-
-      stateName: state.state_name,
-
-      population: state.population,
+    if (user === undefined) {
+      res.status(400)
+      res.send('Invalid user')
+    } else {
+      const ispasswordright = await bcrypt.compare(password, user.password)
+      if (!ispasswordright) {
+        res.status(400)
+        res.send('Invalid password')
+      } else {
+        const payload = {
+          username: username,
+        }
+        const jwtToken = jwttokens.sign(payload, 'secretkey')
+        res.send({jwtToken})
+      }
     }
-  })
-
-  response.send(getStatesResult)
-})
-
-app.get('/states/:stateId/', middlewareFunc, async (request, response) => {
-  const {stateId} = request.params
-
-  const getStateQuery = `SELECT * FROM state WHERE state_id = '${stateId}';`
-
-  const getState = await db.get(getStateQuery)
-
-  const getStateResult = {
-    stateId: getState.state_id,
-
-    stateName: getState.state_name,
-
-    population: getState.population,
+  } catch (e) {
+    console.log('Internal error : ' + e)
   }
-
-  response.send(getStateResult)
 })
 
-app.post('/districts/', middlewareFunc, async (request, response) => {
-  const requestBody = request.body
-
-  const {districtName, stateId, cases, cured, active, deaths} = requestBody
-
-  const districtQuery = `
-
-  INSERT INTO district(district_name, state_id, cases, cured, active, deaths )
-
-  VALUES('${districtName}',${stateId},${cases},${cured},${active},${deaths})
-
-  `
-
-  await db.run(districtQuery)
-
-  response.send('District Successfully Added')
+app.get('/states', check, async (req, res) => {
+  try {
+    const api2 = `SELECT * FROM state;`
+    const ans = await db.all(api2)
+    res.send(ans)
+  } catch (e) {
+    console.log('get api error : ' + e)
+  }
 })
 
-app.get(
-  '/districts/:districtId/',
+app.get('/states/:stateId', check, async (req, res) => {
+  const {stateId} = req.params
+  const api3 = `SELECT * FROM state WHERE state_id='${stateId}';`
+  const ans = await db.get(api3)
+  res.send(ans)
+})
 
-  middlewareFunc,
+app.post('/districts/', check, async (req, res) => {
+  const {districtName, stateId, cases, cured, active, deaths} = req.body
+  const api4 = `INSERT INTO
+                    district ( district_name, state_id, cases,cured,active,deaths)
+                VALUES
+                    ('${districtName}','${stateId}','${cases}','${cured}','${active}','${deaths}');`
+  await db.run(api4)
+  res.send('District Successfully Added')
+})
 
-  async (request, response) => {
-    const districtIdObject = request.params
+app.get('/districts/:districtId/', check, async (req, res) => {
+  const {districtId} = req.params
+  const api5 = `SELECT * FROM district WHERE district_id = '${districtId}';`
+  const ans = await db.get(api5)
+  res.send(ans)
+})
 
-    const {districtId} = districtIdObject
+app.delete('/districts/:districtId/', check, async (req, res) => {
+  const {districtId} = req.params
+  const api6 = `DELETE FROM district WHERE district_id = '${districtId}';`
+  await db.run(api6)
+  res.send('District Removed')
+})
 
-    const districtQuery = `SELECT * FROM district WHERE district_id=${districtId}`
+app.put('/districts/:districtId/', check, async (req, res) => {
+  const {districtId} = req.params
+  const {districtName, stateId, cases, cured, active, deaths} = req.body
+  const api7 = `UPDATE district SET district_name = '${districtName}',state_id = '${stateId}',cases = '${cases}',cured = '${cured}',active = '${active}',deaths = '${deaths}' WHERE district_id = '${districtId}';`
+  await db.run(api7)
+  res.send('District Details Updated')
+})
 
-    const dbResponse = await db.get(districtQuery)
-
-    const dbResponseResult = {
-      districtId: dbResponse.district_id,
-
-      districtName: dbResponse.district_name,
-
-      stateId: dbResponse.state_id,
-
-      cases: dbResponse.cases,
-
-      cured: dbResponse.cured,
-
-      active: dbResponse.active,
-
-      deaths: dbResponse.deaths,
-    }
-
-    response.send(dbResponseResult)
-  },
-)
-
-app.delete(
-  '/districts/:districtId/',
-
-  middlewareFunc,
-
-  async (request, response) => {
-    const districtsIdObject = request.params
-
-    const {districtId} = districtsIdObject
-
-    const districtQuery = `DELETE FROM district WHERE district_id = ${districtId};`
-
-    await db.run(districtQuery)
-
-    response.send('District Removed')
-  },
-)
-
-app.put(
-  '/districts/:districtId/',
-
-  middlewareFunc,
-
-  async (request, response) => {
-    const requestBody = request.body
-
-    const {districtName, stateId, cases, cured, active, deaths} = requestBody
-
-    const districtsIdObject = request.params
-
-    const {districtId} = districtsIdObject
-
-    const districtQuery = `
-
-  UPDATE district SET district_name='${districtName}',state_id=${stateId},
-
-  cases=${cases},cured=${cured},active=${active},deaths=${deaths} WHERE district_id=${districtId};
-
-  `
-
-    const dbResponse = await db.run(districtQuery)
-
-    response.send('District Details Updated')
-  },
-)
-
-app.get(
-  '/states/:stateId/stats/',
-
-  middlewareFunc,
-
-  async (request, response) => {
-    const statedID = request.params.stateId
-
-    const stateQuery = `
-
-  SELECT  SUM(cases) AS totalCases,SUM(cured) AS totalCured,
-
-  SUM(active) AS totalActive, SUM(deaths) AS totalDeaths
-
-  FROM state INNER JOIN district ON state.state_id=district.state_id
-
-  WHERE state.state_id= ${statedID};
-
-  `
-
-    const dbResponse = await db.get(stateQuery)
-
-    response.send(dbResponse)
-  },
-)
+app.get('/states/:stateId/stats', check, async (req, res) => {
+  const {stateId} = req.params
+  const api8 = `SELECT SUM(cases) AS totalCases,SUM(cured) AS totalCured,SUM(active) AS totalActive,SUM(deaths) AS totalDeaths FROM district WHERE state_id = '${stateId}';`
+  const ans = await db.get(api8)
+  res.send(ans)
+})
 
 module.exports = app
