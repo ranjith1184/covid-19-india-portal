@@ -3,7 +3,7 @@ const path = require('path')
 const {open} = require('sqlite')
 const sqlite3 = require('sqlite3')
 const bcrypt = require('bcrypt')
-const jwttokens = require('jsonwebtoken')
+const jwttoken = require('jsonwebtoken')
 
 let db = null
 
@@ -36,7 +36,7 @@ const check = (req, res, next) => {
     res.status(401)
     res.send('Invalid JWT Token')
   } else {
-    jwttokens.verify(jwt, 'secretkey', async (err, payload) => {
+    jwttoken.verify(jwt, 'secretkey', async (err, payload) => {
       if (err) {
         res.send('Invalid JWT Token')
       } else {
@@ -66,8 +66,8 @@ app.post('/login/', async (req, res) => {
         const payload = {
           username: username,
         }
-        const jwtToken = jwttokens.sign(payload, 'secretkey')
-        res.send({jwtToken})
+        const token = jwttoken.sign(payload, 'secretkey')
+        res.send({token})
       }
     }
   } catch (e) {
